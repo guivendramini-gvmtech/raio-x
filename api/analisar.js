@@ -36,13 +36,43 @@ export default async function handler(req, res) {
     const data = await response.json();
     const texto = data.content[0].text;
 
-    // Parse JSON robusto
-    const match = texto.match(/\{[\s\S]*\}/);
-    const jsonStr = match ? match[0] : texto;
+    const jsonStr = extrairPrimeiroJSON(texto);
+    if (!jsonStr) {
+      return res.status(502).json({ error: 'A IA não retornou um JSON reconhecível.' });
+    }
     const resultado = JSON.parse(jsonStr);
 
     return res.status(200).json(resultado);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+}
+
+// Extrai o PRIMEIRO objeto JSON completo do texto, contando chaves e
+// respeitando strings/escapes. Ignora qualquer coisa antes do "{" inicial
+// e depois do "}" que o fecha (markdown, observações que a IA adicione etc.).
+function extrairPrimeiroJSON(texto) {
+  const ini = texto.indexOf('{');
+  if (ini === -1) return null;
+
+  let profundidade = 0;
+  let dentroDeString = false;
+  let escapando = false;
+
+  for (let i = ini; i < texto.length; i++) {
+    const ch = texto[i];
+
+    if (escapando) { escapando = false; continue; }
+    if (ch === '\\') { escapando = true; continue; }
+    if (ch === '"') { dentroDeString = !dentroDeString; continue; }
+    if (dentroDeString) continue;
+
+    if (ch === '{') profundidade++;
+    else if (ch === '}') {
+      profundidade--;
+      if (profundidade === 0) return texto.slice(ini, i + 1);
+    }
+  }
+
+  return null; // chave nunca fechou (JSON truncado)
 }
